@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+<meta charset="UTF-8">
+<title>Arkanoid PRO</title>
+<style>
+    body {
+        margin: 0;
+        background: radial-gradient(circle at top, #1a1a2e, #000);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        font-family: Arial, sans-serif;
+        color: white;
+    }
+    canvas {
+        background: linear-gradient(#050505, #111);
+        border-radius: 12px;
+        box-shadow: 0 0 20px #00ffd5;
+        touch-action: none;
+    }
+</style>
+</head>
+<body>
+
+<canvas id="game" width="480" height="320"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+// ================= AUDIO =================
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function sound(freq, dur = 0.1) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.frequency.value = freq;
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+    osc.stop(audioCtx.currentTime + dur);
+}
+
+// ================= GAME STATE =================
+let level = 1;
+let lives = 3;
+let score = 0;
+
+// Lopta
+let ballSpeed = 4;
+let ball = {
+    x: canvas.width / 2,
+    y: canvas.height - 40,
+    r: 8,
+    dx: 0,
+    dy: -ballSpeed
+};
+
+// Palica
+const paddle = {
+    w: 90,
+    h: 12,
+    x: canvas.width / 2 - 45,
+    y: canvas.height - 20
+};
+
+// Cigle
+const brick = {
+    cols: 7,
+    w: 55,
+    h: 20,
+    pad: 10,
+    top: 40,
+    left: 30
+};
+let bricks = [];
+
+// Kontrole
+let left = false, right = false;
+
+// ================= INPUT =================
+document.addEventListener("keydown", e => {
+    if (e.key === "ArrowLeft") left = true;
+    if (e.key === "ArrowRight") right = true;
+});
+document.addEventListener("keyup", e => {
+    if (e.key === "ArrowLeft") left = false;
+    if (e.key === "ArrowRight") right = false;
+});
+
+// Touch (mobilni)
+canvas.addEventListener("touchmove", e => {
+    const rect = canvas.getBoundingClientRect();
+    paddle.x = e.touches[0].clientX - rect.left - paddle.w / 2;
+});
+
+// ================= SETUP =================
+function createBricks() {
+    bricks = [];
+    for (let c = 0; c < brick.cols; c++) {
+        bricks[c] = [];
+        for (let r = 0; r < level + 3; r++) {
+            bricks[c][r] = { status: 1 };
+        }
+    }
+}
+createBricks();
+
+// ================= DRAW =================
+function drawBall() {
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+    ctx.fillStyle = "#00ffd5";
+    ctx.fill();
+}
+
+function drawPaddle() {
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(paddle.x, paddle.y, paddle.w, paddle.h);
+}
+
+function drawBricks() {
+    for (let c = 0; c < bricks.length; c++) {
+        for (let r = 0; r < bricks[c].length; r++) {
+            if (bricks[c][r].status) {
+                const x = brick.left + c * (brick.w + brick.pad);
+                const y = brick.top + r * (brick.h + brick.pad);
+                bricks[c][r].x = x;
+                bricks[c][r].y = y;
+                ctx.fillStyle = `hsl(${r * 40}, 80%, 60%)`;
+                ctx.fillRect(x, y, brick.w, brick.h);
+            }
+        }
+    }
+}
+
+function drawUI() {
+    ctx.fillStyle = "#fff";
+    ctx.font = "14px Arial";
+    ctx.fillText("Score: " + score, 10, 20);
+    ctx.fillText("Lives: ❤️".repeat(lives), 170, 20);
+    ctx.fillText("Level: " + level, 380, 20);
+}
+
+// ================= COLLISIONS =================
+function brickCollision() {
+    for (let c = 0; c < bricks.length; c++) {
+        for (let r = 0; r < bricks[c].length; r++) {
+            const b = bricks[c][r];
+            if (b.status &&
+                ball.x > b.x && ball.x < b.x + brick.w &&
+                ball.y > b.y && ball.y < b.y + brick.h) {
+                ball.dy *= -1;
+                b.status = 0;
+                score += 10;
+                sound(600);
+            }
+        }
+    }
+}
+
+// ================= GAME LOOP =================
+function update() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    drawBricks();
+    drawBall();
+    drawPaddle();
+    drawUI();
+    brickCollision();
+
+    // Zidovi
+    if (ball.x + ball.dx < ball.r || ball.x + ball.dx > canvas.width - ball.r) {
+        ball.dx *= -1;
+        sound(300);
+    }
+    if (ball.y + ball.dy < ball.r) {
+        ball.dy *= -1;
+        sound(300);
+    }
+
+    // Palica – DINAMIČKI UGAO ODBIJANJA
+    if (
+        ball.y + ball.r >= paddle.y &&
+        ball.x >= paddle.x &&
+        ball.x <= paddle.x + paddle.w
+    ) {
+        let hitPos = (ball.x - (paddle.x + paddle.w / 2)) / (paddle.w / 2);
+        let maxAngle = Math.PI / 3; // 60°
+        let angle = hitPos * maxAngle;
+
+        ball.dx = ballSpeed * Math.sin(angle);
+        ball.dy = -ballSpeed * Math.cos(angle);
+
+        sound(800);
+    }
+
+    // Padanje
+    if (ball.y > canvas.height) {
+        lives--;
+        sound(150);
+        if (!lives) {
+            alert("GAME OVER");
+            document.location.reload();
+        }
+        ball.x = canvas.width / 2;
+        ball.y = canvas.height - 40;
+        ball.dx = 0;
+        ball.dy = -ballSpeed;
+    }
+
+    // Kretanje palice
+    if (right && paddle.x < canvas.width - paddle.w) paddle.x += 6;
+    if (left && paddle.x > 0) paddle.x -= 6;
+
+    ball.x += ball.dx;
+    ball.y += ball.dy;
+
+    // Sledeći nivo
+    if (bricks.flat().every(b => !b.status)) {
+        level++;
+        ballSpeed += 0.5;
+        ball.x = canvas.width / 2;
+        ball.y = canvas.height - 40;
+        ball.dx = 0;
+        ball.dy = -ballSpeed;
+        createBricks();
+        sound(1000, 0.3);
+    }
+
+    requestAnimationFrame(update);
+}
+
+update();
+</script>
+
+</body>
+</html>
